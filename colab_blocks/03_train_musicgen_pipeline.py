@@ -1,5 +1,3 @@
-
-
 import os
 import sys
 import gc
@@ -16,7 +14,6 @@ import time
 from pathlib import Path
 from tqdm import tqdm
 
-
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "wandb", "requests"], check=True)
 
 import wandb
@@ -29,7 +26,6 @@ RUN_TAG = time.strftime("%Y%m%d_%H%M%S")
 MANIFESTS_DIR = "/content/manifests"
 AUDIOCRAFT_DIR = "/content/audiocraft"
 EGS_DIR = "/content/egs/musiccaps"
-
 
 OUTPUTS_DIR = f"/content/outputs_{RUN_TAG}"
 
@@ -50,7 +46,6 @@ WANDB_POST_RUN_NAME = f"musicgen-postprocess-{RUN_TAG}"
 MICROMAMBA_ROOT = "/content/micromamba_root"
 ENV_NAME = "audiocraft310"
 
-
 TRAIN_EPOCHS = 50
 UPDATES_PER_EPOCH = 150
 LEARNING_RATE = 8e-6
@@ -59,7 +54,6 @@ os.makedirs(MANIFESTS_DIR, exist_ok=True)
 os.makedirs(OUTPUTS_DIR, exist_ok=True)
 os.makedirs(f"{EGS_DIR}/train", exist_ok=True)
 os.makedirs(f"{EGS_DIR}/valid", exist_ok=True)
-
 
 def run(cmd, cwd=None, env=None, print_cmd=True, secret=False, capture_output=False, check=True):
     if print_cmd:
@@ -138,7 +132,6 @@ def normalize_music_json(meta):
     }
     return norm
 
-
 DATA_DIR = None
 
 if os.path.isdir(LOCAL_DATA_DIR):
@@ -198,7 +191,6 @@ else:
 
 assert DATA_DIR is not None and os.path.isdir(DATA_DIR), f"Не найдена папка с данными: {DATA_DIR}"
 
-
 WANDB_API_KEY = getpass.getpass("Вставь W&B API key: ").strip()
 assert WANDB_API_KEY, "W&B API key пустой"
 
@@ -217,7 +209,6 @@ try:
     print(f"✓ W&B login ok. Пользователь: {getattr(viewer, 'username', 'unknown')}")
 except Exception:
     print("✓ W&B login ok")
-
 
 print("\n===== CLEANUP BEFORE TRAIN =====")
 
@@ -276,7 +267,6 @@ except Exception as e:
 print("\n===== GPU AFTER CLEANUP =====")
 subprocess.run(["nvidia-smi"], check=False)
 
-
 entries = []
 files = sorted([f for f in os.listdir(DATA_DIR) if f.endswith(".wav")])
 
@@ -300,7 +290,6 @@ for wav_file in tqdm(files, desc="Manifest"):
 
         norm_meta = normalize_music_json(raw_meta)
 
-        
         if raw_meta != norm_meta:
             with open(json_path, "w", encoding="utf-8") as f:
                 json.dump(norm_meta, f, ensure_ascii=False, indent=2)
@@ -356,7 +345,6 @@ print("✓ manifests готовы")
 print("  ", train_manifest)
 print("  ", valid_manifest)
 
-
 dataset_card = f"""# MusicCaps fine-tuning dataset
 
 - total_valid_pairs: {num_valid}
@@ -386,7 +374,6 @@ Manifest entries also contain:
 
 with open(DATASET_CARD_PATH, "w", encoding="utf-8") as f:
     f.write(dataset_card)
-
 
 preview_table = wandb.Table(columns=[
     "ytid", "audio", "duration_sec", "description",
@@ -421,7 +408,6 @@ for base_name, wav_path, json_path in preview_candidates:
         )
     except Exception as e:
         print(f"[preview skip] {base_name}: {e}")
-
 
 setup_config = {
     "num_valid_pairs": num_valid,
@@ -476,10 +462,7 @@ with wandb.init(
 
 print("✓ W&B setup artifacts logged")
 
-
-
 print("\nСоздаём новое env под Blackwell / CUDA 12.8...")
-
 
 ENV_NAME = "audiocraft_bw"
 MICROMAMBA_ROOT = "/content/micromamba_root"
@@ -519,7 +502,6 @@ if ENV_NAME in env_list:
     print(f"Удаляю старый env {ENV_NAME} ...")
     run_live([MAMBA_BIN, "env", "remove", "-y", "-n", ENV_NAME], env=MAMBA_ENV)
 
-
 run_live([
     MAMBA_BIN, "create", "-y", "-n", ENV_NAME,
     "-c", "conda-forge",
@@ -550,65 +532,9 @@ for cand in [
 if preload_libs:
     RUNTIME_ENV["LD_PRELOAD"] = ":".join(preload_libs)
 
-
 if not os.path.isdir(AUDIOCRAFT_DIR):
-    print("\nКлонируем AudioCraft...")
-    run(["git", "clone", "https://github.com/facebookresearch/audiocraft.git", AUDIOCRAFT_DIR])
-
-
-music_dataset_path = Path(f"{AUDIOCRAFT_DIR}/audiocraft/data/music_dataset.py")
-assert music_dataset_path.exists(), f"Не найден файл: {music_dataset_path}"
-
-text = music_dataset_path.read_text(encoding="utf-8")
-
-def patch_once(pattern, repl, src, desc):
-    new_src, n = re.subn(pattern, repl, src, count=1, flags=re.MULTILINE | re.DOTALL)
-    if n == 0:
-        raise RuntimeError(f"Не удалось применить патч: {desc}")
-    return new_src
-
-if "general_mood: tp.Optional[str] = None" not in text:
-    text = patch_once(
-        r"(instrument:\s*tp\.Optional\[str\]\s*=\s*None\s*\n)",
-        r"\1"
-        r"    general_mood: tp.Optional[str] = None\n"
-        r"    genre_tags: tp.Optional[list] = None\n"
-        r"    lead_instrument: tp.Optional[str] = None\n"
-        r"    accompaniment: tp.Optional[str] = None\n"
-        r"    tempo_and_rhythm: tp.Optional[str] = None\n"
-        r"    vocal_presence: tp.Optional[str] = None\n"
-        r"    production_quality: tp.Optional[str] = None\n",
-        text,
-        "добавление новых полей в MusicInfo"
-    )
-
-if "['moods', 'keywords', 'genre_tags']" not in text:
-    text = patch_once(
-        r"elif attribute in \['moods', 'keywords'\]:\s*\n\s*preprocess_func = get_keyword_list",
-        "elif attribute in ['moods', 'keywords', 'genre_tags']:\n            preprocess_func = get_keyword_list",
-        text,
-        "genre_tags как keyword_list"
-    )
-
-if "general_mood" not in text.split("attribute_getter", 1)[-1]:
-    text = patch_once(
-        r"elif attribute in \['title', 'artist', 'description'\]:\s*\n\s*preprocess_func = get_string",
-        "elif attribute in ['title', 'artist', 'description', 'general_mood', 'lead_instrument', 'accompaniment', 'tempo_and_rhythm', 'vocal_presence', 'production_quality']:\n            preprocess_func = get_string",
-        text,
-        "новые строковые поля"
-    )
-
-if "lead_instrument" not in text.split("valid_field_name", 1)[-1]:
-    text = patch_once(
-        r"valid_field_name = field_name in \['key', 'bpm', 'genre', 'moods', 'instrument', 'keywords'\]",
-        "valid_field_name = field_name in ['key', 'bpm', 'genre', 'moods', 'instrument', 'keywords', 'general_mood', 'genre_tags', 'lead_instrument', 'accompaniment', 'tempo_and_rhythm', 'vocal_presence', 'production_quality']",
-        text,
-        "добавление новых полей в augment_music_info_description"
-    )
-
-music_dataset_path.write_text(text, encoding="utf-8")
-print(f"✓ music_dataset.py пропатчен: {music_dataset_path}")
-
+    print("\nКлонируем AudioCraft из вашего форка...")
+    run(["git", "clone", f"https://github.com/{GITHUB_USER}/audiocraft.git", AUDIOCRAFT_DIR])
 
 print("\nСтавим Blackwell-совместимый стек внутрь env...")
 
@@ -616,7 +542,6 @@ run_live(
     [MAMBA_BIN, "run", "-n", ENV_NAME, "python", "-m", "pip", "install", "-U", "pip", "setuptools", "wheel"],
     env=RUNTIME_ENV
 )
-
 
 run_live(
     [
@@ -630,7 +555,6 @@ run_live(
     log_path=INSTALL_LOG_PATH
 )
 
-
 run_live(
     [
         MAMBA_BIN, "run", "-n", ENV_NAME, "python", "-m", "pip", "install",
@@ -639,7 +563,6 @@ run_live(
     env=RUNTIME_ENV,
     log_path=INSTALL_LOG_PATH
 )
-
 
 run_live(
     [
@@ -701,7 +624,6 @@ run_live(
 
 print("✓ Blackwell-совместимый стек и AudioCraft готовы")
 
-
 cfg_dir = f"{AUDIOCRAFT_DIR}/config/dset/audio"
 os.makedirs(cfg_dir, exist_ok=True)
 
@@ -723,7 +645,6 @@ with open(cfg_path, "w", encoding="utf-8") as f:
 
 print(f"✓ dset-конфиг создан: {cfg_path}")
 
-
 try:
     import wandb
     wandb.finish()
@@ -736,10 +657,8 @@ TRAIN_ENV["AUDIOCRAFT_DORA_DIR"] = OUTPUTS_DIR
 TRAIN_ENV["PYTHONPATH"] = AUDIOCRAFT_DIR + (":" + TRAIN_ENV["PYTHONPATH"] if "PYTHONPATH" in TRAIN_ENV else "")
 TRAIN_ENV["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
-
 print("ENV_PREFIX =", ENV_PREFIX)
 print("OUTPUTS_DIR =", OUTPUTS_DIR)
-
 
 cmd = [
     MAMBA_BIN, "run", "-n", ENV_NAME,
@@ -749,7 +668,6 @@ cmd = [
     "model/lm/model_scale=small",
     "continue_from=//pretrained/facebook/musicgen-small",
 
-    
     "logging.log_wandb=false", 
     "logging.log_tensorboard=true",
     "logging.log_updates=5",
@@ -759,7 +677,6 @@ cmd = [
     "autocast_dtype=float16",
     "optim.ema.use=false",
 
-   
     "dataset.batch_size=1",
     "dataset.num_workers=0",
     "dataset.segment_duration=2", 
@@ -781,7 +698,6 @@ cmd = [
 print("\n🚀 ЗАПУСК ОБУЧЕНИЯ (без внутреннего W&B)...")
 run_live(cmd, cwd=AUDIOCRAFT_DIR, env=TRAIN_ENV, log_path=TRAIN_LOG_PATH)
 
-
 xps_dir = Path(OUTPUTS_DIR) / "xps"
 latest_xp_dir = None
 
@@ -793,7 +709,6 @@ if xps_dir.exists():
 print("\n✓ TRAIN FINISHED")
 if latest_xp_dir is not None:
     print(f"✓ Latest XP dir: {latest_xp_dir}")
-
 
 with wandb.init(
     project=WANDB_PROJECT,
