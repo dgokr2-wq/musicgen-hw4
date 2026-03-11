@@ -1,0 +1,72 @@
+[
+  {
+    "description": "An epic and triumphant orchestral soundtrack featuring powerful brass and a sweeping string ensemble, driven by a fast march-like rhythm and an epic background choir, recorded with massive stadium reverb.",
+    "general_mood": "Epic, heroic, triumphant, building tension",
+    "genre_tags": [
+      "Cinematic",
+      "Orchestral",
+      "Soundtrack"
+    ],
+    "lead_instrument": "Powerful brass section (horns, trombones)",
+    "accompaniment": "Sweeping string ensemble, heavy cinematic percussion, timpani",
+    "tempo_and_rhythm": "Fast, driving, march-like rhythm",
+    "vocal_presence": "Epic choir in the background (wordless chanting)",
+    "production_quality": "High fidelity, wide stereo image, massive stadium reverb"
+  },
+  {
+    "description": "A relaxing lo-fi hip-hop instrumental with a muffled electric piano playing jazz chords over a dusty vinyl crackle, deep sub-bass, and a slow boom-bap drum loop.",
+    "general_mood": "Relaxing, nostalgic, chill, melancholic",
+    "genre_tags": [
+      "Lo-Fi Hip Hop",
+      "Chillhop",
+      "Instrumental"
+    ],
+    "lead_instrument": "Muffled electric piano (Rhodes) playing jazz chords",
+    "accompaniment": "Dusty vinyl crackle, deep sub-bass, soft boom-bap drum loop",
+    "tempo_and_rhythm": "Slow, laid-back, swinging groove",
+    "vocal_presence": "None",
+    "production_quality": "Lo-Fi, vintage, warm tape saturation, slightly muffled high frequencies"
+  },
+  {
+    "description": "An energetic progressive house dance track with a bright detuned synthesizer lead, pumping sidechain bass, and chopped vocal samples over a fast four-on-the-floor beat.",
+    "general_mood": "Energetic, uplifting, party vibe, euphoric",
+    "genre_tags": [
+      "EDM",
+      "Progressive House",
+      "Dance"
+    ],
+    "lead_instrument": "Bright, detuned synthesizer lead",
+    "accompaniment": "Pumping sidechain bass, risers, crash cymbals",
+    "tempo_and_rhythm": "Fast, driving, strict four-on-the-floor beat",
+    "vocal_presence": "Chopped vocal samples used as a rhythmic instrument",
+    "production_quality": "Modern, extremely loud, punchy, club-ready mix"
+  },
+  {
+    "description": "An intimate acoustic folk instrumental featuring a fingerpicked acoustic guitar, light tambourine, and subtle upright bass, played in a gentle waltz-like rhythm.",
+    "general_mood": "Intimate, warm, acoustic, peaceful",
+    "genre_tags": [
+      "Folk",
+      "Acoustic",
+      "Indie"
+    ],
+    "lead_instrument": "Fingerpicked acoustic guitar",
+    "accompaniment": "Light tambourine, subtle upright bass, distant ambient room sound",
+    "tempo_and_rhythm": "Mid-tempo, gentle, waltz-like triple meter",
+    "vocal_presence": "None",
+    "production_quality": "Raw, organic, close-mic recording, natural room acoustics"
+  },
+  {
+    "description": "A dark cyberpunk synthwave instrumental driven by an aggressive distorted analog bass synthesizer, arpeggiated synth plucks, and a retro 80s drum machine.",
+    "general_mood": "Dark, futuristic, gritty, mysterious",
+    "genre_tags": [
+      "Synthwave",
+      "Cyberpunk",
+      "Darkwave"
+    ],
+    "lead_instrument": "Aggressive, distorted analog bass synthesizer",
+    "accompaniment": "Arpeggiated synth plucks, retro 80s drum machine (gated snare)",
+    "tempo_and_rhythm": "Driving, mid-tempo, robotic precision",
+    "vocal_presence": "None",
+    "production_quality": "Retro-futuristic, heavy compression, synthetic, 80s aesthetic"
+  }
+]
