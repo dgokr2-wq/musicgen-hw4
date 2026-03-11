@@ -1,7 +1,6 @@
 import os
 import sys
 import gc
-import re
 import json
 import gzip
 import wave
@@ -14,38 +13,44 @@ import time
 from pathlib import Path
 from tqdm import tqdm
 
-subprocess.run([sys.executable, "-m", "pip", "install", "-q", "wandb", "requests"], check=True)
 
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "wandb", "requests"], check=True)
 import wandb
 
+# ---------- paths ----------
 LOCAL_DATA_DIR = "/content/musiccaps_data"
-REPO_CLONE_DIR = "/content/te2_repo"
+DATA_REPO_CLONE_DIR = "/content/te2_repo"
+AUDIOCRAFT_DIR = "/content/audiocraft"
 
 RUN_TAG = time.strftime("%Y%m%d_%H%M%S")
 
 MANIFESTS_DIR = "/content/manifests"
-AUDIOCRAFT_DIR = "/content/audiocraft"
 EGS_DIR = "/content/egs/musiccaps"
-
 OUTPUTS_DIR = f"/content/outputs_{RUN_TAG}"
 
 TRAIN_LOG_PATH = os.path.join(OUTPUTS_DIR, "train_stdout.log")
 INSTALL_LOG_PATH = os.path.join(OUTPUTS_DIR, "audiocraft_install.log")
 DATASET_CARD_PATH = os.path.join(OUTPUTS_DIR, "dataset_card.md")
+TRAIN_SUMMARY_PATH = os.path.join(OUTPUTS_DIR, "training_summary.json")
 
+# ---------- github ----------
 GITHUB_USER = "dgokr2-wq"
-GITHUB_REPO = "te2"
-GITHUB_BRANCH = "main"
+DATA_GITHUB_REPO = "te2"
+DATA_GITHUB_BRANCH = "main"
+AUDIOCRAFT_FORK_REPO = "audiocraft"
 
+# ---------- wandb ----------
 WANDB_PROJECT = "musicgen-musiccaps-ft"
 WANDB_GROUP = "colab-finetune"
 WANDB_SETUP_RUN_NAME = f"musiccaps-setup-{RUN_TAG}"
 WANDB_TRAIN_RUN_NAME = f"musicgen-small-long-{RUN_TAG}"
 WANDB_POST_RUN_NAME = f"musicgen-postprocess-{RUN_TAG}"
 
+# ---------- env ----------
 MICROMAMBA_ROOT = "/content/micromamba_root"
-ENV_NAME = "audiocraft310"
+ENV_NAME = "audiocraft_bw"
 
+# ---------- train ----------
 TRAIN_EPOCHS = 50
 UPDATES_PER_EPOCH = 150
 LEARNING_RATE = 8e-6
@@ -54,6 +59,7 @@ os.makedirs(MANIFESTS_DIR, exist_ok=True)
 os.makedirs(OUTPUTS_DIR, exist_ok=True)
 os.makedirs(f"{EGS_DIR}/train", exist_ok=True)
 os.makedirs(f"{EGS_DIR}/valid", exist_ok=True)
+
 
 def run(cmd, cwd=None, env=None, print_cmd=True, secret=False, capture_output=False, check=True):
     if print_cmd:
@@ -95,6 +101,7 @@ def run_live(cmd, cwd=None, env=None, print_cmd=True, secret=False, log_path=Non
     finally:
         if log_f:
             log_f.close()
+
     if proc.returncode != 0:
         raise RuntimeError(f"Команда упала с кодом {proc.returncode}")
 
@@ -120,7 +127,7 @@ def normalize_list(x):
     return [str(x).strip()]
 
 def normalize_music_json(meta):
-    norm = {
+    return {
         "description": normalize_string(meta.get("description", "")),
         "general_mood": normalize_string(meta.get("general_mood", "")),
         "genre_tags": normalize_list(meta.get("genre_tags", [])),
@@ -130,7 +137,7 @@ def normalize_music_json(meta):
         "vocal_presence": normalize_string(meta.get("vocal_presence", "")),
         "production_quality": normalize_string(meta.get("production_quality", "")),
     }
-    return norm
+
 
 DATA_DIR = None
 
@@ -145,8 +152,8 @@ else:
     run(["apt-get", "install", "-y", "git-lfs"])
     run(["git", "lfs", "install"])
 
-    if os.path.exists(REPO_CLONE_DIR):
-        shutil.rmtree(REPO_CLONE_DIR)
+    if os.path.exists(DATA_REPO_CLONE_DIR):
+        shutil.rmtree(DATA_REPO_CLONE_DIR)
 
     gh_token = getpass.getpass(
         "Если репозиторий private — вставь GitHub token. "
@@ -154,19 +161,22 @@ else:
     ).strip()
 
     if gh_token:
-        repo_url = f"https://{GITHUB_USER}:{gh_token}@github.com/{GITHUB_USER}/{GITHUB_REPO}.git"
+        repo_url = f"https://{GITHUB_USER}:{gh_token}@github.com/{GITHUB_USER}/{DATA_GITHUB_REPO}.git"
         secret_mode = True
     else:
-        repo_url = f"https://github.com/{GITHUB_USER}/{GITHUB_REPO}.git"
+        repo_url = f"https://github.com/{GITHUB_USER}/{DATA_GITHUB_REPO}.git"
         secret_mode = False
 
-    run(["git", "clone", "--branch", GITHUB_BRANCH, repo_url, REPO_CLONE_DIR], secret=secret_mode)
-    run(["git", "lfs", "pull"], cwd=REPO_CLONE_DIR)
+    run(
+        ["git", "clone", "--branch", DATA_GITHUB_BRANCH, repo_url, DATA_REPO_CLONE_DIR],
+        secret=secret_mode
+    )
+    run(["git", "lfs", "pull"], cwd=DATA_REPO_CLONE_DIR)
 
     candidate_dirs = [
-        os.path.join(REPO_CLONE_DIR, "musiccaps_data"),
-        os.path.join(REPO_CLONE_DIR, "data"),
-        REPO_CLONE_DIR,
+        os.path.join(DATA_REPO_CLONE_DIR, "musiccaps_data"),
+        os.path.join(DATA_REPO_CLONE_DIR, "data"),
+        DATA_REPO_CLONE_DIR,
     ]
 
     for cand in candidate_dirs:
@@ -183,13 +193,13 @@ else:
 
     if DATA_DIR is None:
         raise RuntimeError(
-            f"Не нашёл папку с wav/json внутри репозитория {GITHUB_USER}/{GITHUB_REPO}. "
-            f"Ожидалась папка musiccaps_data в корне."
+            f"Не нашёл папку с wav/json внутри репозитория {GITHUB_USER}/{DATA_GITHUB_REPO}."
         )
 
     print(f"✓ Данные подтянуты из GitHub: {DATA_DIR}")
 
 assert DATA_DIR is not None and os.path.isdir(DATA_DIR), f"Не найдена папка с данными: {DATA_DIR}"
+
 
 WANDB_API_KEY = getpass.getpass("Вставь W&B API key: ").strip()
 assert WANDB_API_KEY, "W&B API key пустой"
@@ -210,6 +220,7 @@ try:
 except Exception:
     print("✓ W&B login ok")
 
+
 print("\n===== CLEANUP BEFORE TRAIN =====")
 
 for var_name in [
@@ -219,7 +230,7 @@ for var_name in [
     if var_name in globals():
         try:
             del globals()[var_name]
-        except:
+        except Exception:
             pass
 
 try:
@@ -232,7 +243,7 @@ try:
         pid_str, cmdline = parts
         try:
             pid = int(pid_str)
-        except:
+        except Exception:
             continue
 
         if pid == my_pid:
@@ -267,6 +278,7 @@ except Exception as e:
 print("\n===== GPU AFTER CLEANUP =====")
 subprocess.run(["nvidia-smi"], check=False)
 
+
 entries = []
 files = sorted([f for f in os.listdir(DATA_DIR) if f.endswith(".wav")])
 
@@ -293,14 +305,14 @@ for wav_file in tqdm(files, desc="Manifest"):
         if raw_meta != norm_meta:
             with open(json_path, "w", encoding="utf-8") as f:
                 json.dump(norm_meta, f, ensure_ascii=False, indent=2)
-                
+
         entry = {
             "path": wav_path,
             "duration": duration,
             "sample_rate": sample_rate,
             "amplitude": None,
             "weight": None,
-            "info_path": None, 
+            "info_path": None,
             "description": norm_meta["description"],
             "general_mood": norm_meta["general_mood"],
             "genre_tags": norm_meta["genre_tags"],
@@ -366,10 +378,6 @@ This dataset contains:
   - tempo_and_rhythm
   - vocal_presence
   - production_quality
-
-Manifest entries also contain:
-- info_path
-- duplicated structured metadata fields
 """
 
 with open(DATASET_CARD_PATH, "w", encoding="utf-8") as f:
@@ -419,7 +427,7 @@ setup_config = {
     "channels": 1,
     "segment_duration_train": 2,
     "model_scale": "small",
-    "source_repo": f"{GITHUB_USER}/{GITHUB_REPO}",
+    "source_repo": f"{GITHUB_USER}/{DATA_GITHUB_REPO}",
     "env_python": "3.10 (micromamba)",
 }
 
@@ -462,10 +470,8 @@ with wandb.init(
 
 print("✓ W&B setup artifacts logged")
 
-print("\nСоздаём новое env под Blackwell / CUDA 12.8...")
 
-ENV_NAME = "audiocraft_bw"
-MICROMAMBA_ROOT = "/content/micromamba_root"
+print("\nСоздаём новое env под Blackwell / CUDA 12.8...")
 
 MAMBA_ENV = os.environ.copy()
 MAMBA_ENV["MAMBA_ROOT_PREFIX"] = MICROMAMBA_ROOT
@@ -484,10 +490,7 @@ for cand in MAMBA_BIN_CANDIDATES:
         break
 
 if MAMBA_BIN is None:
-    run_live(
-        ["bash", "-lc", "curl -Ls https://micro.mamba.pm/install.sh | bash"],
-        env=MAMBA_ENV
-    )
+    run_live(["bash", "-lc", "curl -Ls https://micro.mamba.pm/install.sh | bash"], env=MAMBA_ENV)
     for cand in MAMBA_BIN_CANDIDATES:
         if os.path.exists(cand):
             MAMBA_BIN = cand
@@ -532,9 +535,31 @@ for cand in [
 if preload_libs:
     RUNTIME_ENV["LD_PRELOAD"] = ":".join(preload_libs)
 
-if not os.path.isdir(AUDIOCRAFT_DIR):
-    print("\nКлонируем AudioCraft из вашего форка...")
-    run(["git", "clone", f"https://github.com/{GITHUB_USER}/audiocraft.git", AUDIOCRAFT_DIR])
+
+if os.path.isdir(AUDIOCRAFT_DIR):
+    print(f"\nУдаляю старую локальную копию: {AUDIOCRAFT_DIR}")
+    shutil.rmtree(AUDIOCRAFT_DIR)
+
+print("\nКлонируем AudioCraft из вашего форка...")
+run(["git", "clone", f"https://github.com/{GITHUB_USER}/{AUDIOCRAFT_FORK_REPO}.git", AUDIOCRAFT_DIR])
+
+music_dataset_path = Path(f"{AUDIOCRAFT_DIR}/audiocraft/data/music_dataset.py")
+assert music_dataset_path.exists(), f"Не найден файл: {music_dataset_path}"
+
+text = music_dataset_path.read_text(encoding="utf-8")
+bad_line = "key, value = getattr(self, _field.name)"
+good_line = "key, value = _field.name, getattr(self, _field.name)"
+
+if bad_line in text:
+    print("Найдена битая строка в music_dataset.py, исправляю локально...")
+    text = text.replace(bad_line, good_line)
+    music_dataset_path.write_text(text, encoding="utf-8")
+
+text = music_dataset_path.read_text(encoding="utf-8")
+assert good_line in text, "Исправленная строка не найдена в music_dataset.py"
+
+print("✓ AudioCraft из форка подтянут и проверен")
+
 
 print("\nСтавим Blackwell-совместимый стек внутрь env...")
 
@@ -624,6 +649,7 @@ run_live(
 
 print("✓ Blackwell-совместимый стек и AudioCraft готовы")
 
+
 cfg_dir = f"{AUDIOCRAFT_DIR}/config/dset/audio"
 os.makedirs(cfg_dir, exist_ok=True)
 
@@ -645,8 +671,8 @@ with open(cfg_path, "w", encoding="utf-8") as f:
 
 print(f"✓ dset-конфиг создан: {cfg_path}")
 
+
 try:
-    import wandb
     wandb.finish()
 except Exception:
     pass
@@ -656,6 +682,9 @@ TRAIN_ENV["USER"] = "root"
 TRAIN_ENV["AUDIOCRAFT_DORA_DIR"] = OUTPUTS_DIR
 TRAIN_ENV["PYTHONPATH"] = AUDIOCRAFT_DIR + (":" + TRAIN_ENV["PYTHONPATH"] if "PYTHONPATH" in TRAIN_ENV else "")
 TRAIN_ENV["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+
+TRAIN_ENV["WANDB_MODE"] = "disabled"
 
 print("ENV_PREFIX =", ENV_PREFIX)
 print("OUTPUTS_DIR =", OUTPUTS_DIR)
@@ -668,7 +697,8 @@ cmd = [
     "model/lm/model_scale=small",
     "continue_from=//pretrained/facebook/musicgen-small",
 
-    "logging.log_wandb=false", 
+    # КРИТИЧЕСКАЯ ПРАВКА:
+    "logging.log_wandb=false",
     "logging.log_tensorboard=true",
     "logging.log_updates=5",
 
@@ -679,7 +709,7 @@ cmd = [
 
     "dataset.batch_size=1",
     "dataset.num_workers=0",
-    "dataset.segment_duration=2", 
+    "dataset.segment_duration=2",
     "+dataset.info_fields_required=false",
     "dataset.valid.num_samples=2",
     "dataset.evaluate.num_samples=0",
@@ -695,8 +725,9 @@ cmd = [
     f"optim.lr={LEARNING_RATE}",
 ]
 
-print("\n🚀 ЗАПУСК ОБУЧЕНИЯ (без внутреннего W&B)...")
+print("\n🚀 ЗАПУСК ОБУЧЕНИЯ...")
 run_live(cmd, cwd=AUDIOCRAFT_DIR, env=TRAIN_ENV, log_path=TRAIN_LOG_PATH)
+
 
 xps_dir = Path(OUTPUTS_DIR) / "xps"
 latest_xp_dir = None
@@ -709,28 +740,62 @@ if xps_dir.exists():
 print("\n✓ TRAIN FINISHED")
 if latest_xp_dir is not None:
     print(f"✓ Latest XP dir: {latest_xp_dir}")
+else:
+    raise RuntimeError("Не удалось найти XP-папку после обучения")
 
+tb_event_files = list(latest_xp_dir.rglob("events.out.tfevents*"))
+checkpoint_path = latest_xp_dir / "checkpoint.th"
+best_state_path = latest_xp_dir / "best_state.th"
+
+summary = {
+    "run_tag": RUN_TAG,
+    "outputs_dir": OUTPUTS_DIR,
+    "latest_xp_dir": str(latest_xp_dir),
+    "train_log_path": TRAIN_LOG_PATH,
+    "install_log_path": INSTALL_LOG_PATH,
+    "checkpoint_exists": checkpoint_path.exists(),
+    "best_state_exists": best_state_path.exists(),
+    "tensorboard_event_files": [str(p) for p in tb_event_files],
+    "train_epochs": TRAIN_EPOCHS,
+    "updates_per_epoch": UPDATES_PER_EPOCH,
+    "learning_rate": LEARNING_RATE,
+    "batch_size": 1,
+    "segment_duration": 2,
+}
+
+with open(TRAIN_SUMMARY_PATH, "w", encoding="utf-8") as f:
+    json.dump(summary, f, ensure_ascii=False, indent=2)
+
+# После обучения можно нормально залить результаты отдельным run
 with wandb.init(
     project=WANDB_PROJECT,
     group=WANDB_GROUP,
     name=WANDB_POST_RUN_NAME,
     job_type="postprocess",
     config={
-        "latest_xp_dir": str(latest_xp_dir) if latest_xp_dir else None,
+        "latest_xp_dir": str(latest_xp_dir),
         "train_log_path": TRAIN_LOG_PATH,
         "install_log_path": INSTALL_LOG_PATH,
         "outputs_dir": OUTPUTS_DIR,
         "run_tag": RUN_TAG,
+        "train_epochs": TRAIN_EPOCHS,
+        "updates_per_epoch": UPDATES_PER_EPOCH,
+        "learning_rate": LEARNING_RATE,
+        "batch_size": 1,
+        "segment_duration": 2,
     },
 ) as post_run:
     outputs_artifact = wandb.Artifact(
         name=f"musicgen-outputs-{post_run.id}",
         type="model-output",
-        description="AudioCraft output directory, installation log and training stdout log.",
+        description="AudioCraft output directory, installation log, stdout log, summary and tensorboard events.",
         metadata={
-            "latest_xp_dir": str(latest_xp_dir) if latest_xp_dir else None,
+            "latest_xp_dir": str(latest_xp_dir),
             "has_train_log": os.path.exists(TRAIN_LOG_PATH),
             "has_install_log": os.path.exists(INSTALL_LOG_PATH),
+            "has_checkpoint": checkpoint_path.exists(),
+            "has_best_state": best_state_path.exists(),
+            "tb_events_count": len(tb_event_files),
             "run_tag": RUN_TAG,
         },
     )
@@ -741,9 +806,16 @@ with wandb.init(
     if os.path.exists(INSTALL_LOG_PATH):
         outputs_artifact.add_file(INSTALL_LOG_PATH)
 
-    if latest_xp_dir is not None and latest_xp_dir.exists():
+    if os.path.exists(TRAIN_SUMMARY_PATH):
+        outputs_artifact.add_file(TRAIN_SUMMARY_PATH)
+
+    if latest_xp_dir.exists():
         outputs_artifact.add_dir(str(latest_xp_dir), name="xp")
 
     post_run.log_artifact(outputs_artifact, aliases=["latest", "train-output"])
 
 print("\n✓ Всё завершено")
+print("TRAIN LOG:", TRAIN_LOG_PATH)
+print("INSTALL LOG:", INSTALL_LOG_PATH)
+print("LATEST XP:", latest_xp_dir)
+print("TB EVENTS:", len(tb_event_files))
